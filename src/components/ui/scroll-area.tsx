@@ -3,31 +3,32 @@ import * as React from "react"
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { cn } from "@/lib/utils"
 
-interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
-    children?: React.ReactNode;
-}
+type ScrollAreaElement = React.ElementRef<typeof ScrollAreaPrimitive.Root>;
+type ScrollAreaProps = React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>;
 
-const ScrollArea = React.forwardRef<any, any>(({ className, children, ...props }, ref) => (
-  <ScrollAreaPrimitive.Root
-    ref={ref}
-    className={cn("relative overflow-hidden", className)}
-    {...props}
-  >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
-      {children}
-    </ScrollAreaPrimitive.Viewport>
-    <ScrollBar />
-    <ScrollAreaPrimitive.Corner />
-  </ScrollAreaPrimitive.Root>
-))
-
+const ScrollArea = React.forwardRef<ScrollAreaElement, ScrollAreaProps>(
+  ({ className, children, ...props }, ref) => (
+    <ScrollAreaPrimitive.Root
+      ref={ref}
+      className={cn("relative overflow-hidden", className)}
+      {...props}
+    >
+      <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+        {children}
+      </ScrollAreaPrimitive.Viewport>
+      <ScrollBar />
+      <ScrollAreaPrimitive.Corner />
+    </ScrollAreaPrimitive.Root>
+  )
+)
 ScrollArea.displayName = ScrollAreaPrimitive.Root.displayName
 
-interface ScrollBarProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar> {
-    orientation?: "vertical" | "horizontal";
-}
+type ScrollBarElement = React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>;
+type ScrollBarProps = React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar> & {
+  orientation?: "vertical" | "horizontal";
+};
 
-const ScrollBar = React.forwardRef<any, any>(
+const ScrollBar = React.forwardRef<ScrollBarElement, ScrollBarProps>(
   ({ className, orientation = "vertical", ...props }, ref) => (
     <ScrollAreaPrimitive.ScrollAreaScrollbar
       ref={ref}
@@ -48,7 +49,6 @@ const ScrollBar = React.forwardRef<any, any>(
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
   )
 )
-
 ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName
 
 export { ScrollArea, ScrollBar }
