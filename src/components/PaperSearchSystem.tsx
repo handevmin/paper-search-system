@@ -131,7 +131,7 @@ Respond with a JSON object in this exact format (and nothing else):
       const summaryResult = summaryData.summary.result;
       const papers = Object.entries(summaryResult || {})
         .filter(([key]) => key !== 'uids')
-        .map(([_, paper]: [string, any]) => {
+        .map(([_, paper]: [string, Record<string, unknown>]) => {
           // Get abstract from XML data
           const articleId = paper.uid;
           let abstractText = 'No abstract available';
