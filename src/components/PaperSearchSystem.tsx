@@ -25,18 +25,18 @@ const PaperSearchSystem = () => {
         },
         body: JSON.stringify({
           prompt: `Generate 3-5 relevant PubMed search terms based on this discussion content. Return only the search terms, one per line, with no additional text or formatting:
-
-${text}`
+  
+  ${text}`
         })
       });
-
+  
       if (!response.ok) {
         throw new Error('Claude API request failed');
       }
-
+  
       const data = await response.json();
       const searchTerms = data.content[0].text.trim().split('\n');
-      return searchTerms.filter(term => term.length > 0);
+      return searchTerms.filter((term: string) => term.length > 0);
     } catch (error) {
       console.error('Error generating search terms:', error);
       return [text];
