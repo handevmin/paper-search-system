@@ -7,14 +7,26 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import _ from 'lodash';
 
+interface Paper {
+    id: string;
+    title: string;
+    authors: string;
+    journal: string;
+    year: string;
+    abstract: string;
+    pubDate: string;
+    relevanceScore: number;
+    summary: string;
+  }
+
 const PaperSearchSystem = () => {
     const [discussionText, setDiscussionText] = useState('');
-    const [papers, setPapers] = useState([]);
-    const [searchTerms, setSearchTerms] = useState([]);
-    const [selectedPaper, setSelectedPaper] = useState(null);
-    const [notes, setNotes] = useState({});
+    const [papers, setPapers] = useState<Paper[]>([]);
+    const [searchTerms, setSearchTerms] = useState<string[]>([]);
+    const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
+    const [notes, setNotes] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
-
+  
     // Function to generate search terms using Claude API
     const generateSearchTerms = async (text: string) => {
         try {
