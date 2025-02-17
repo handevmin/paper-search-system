@@ -54,9 +54,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invalid request type' }, { status: 400 });
   } catch (error) {
     console.error('PubMed API error:', error);
+    
+    // error 타입을 체크하여 안전하게 처리
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    
     return NextResponse.json({ 
       error: 'Failed to fetch from PubMed',
-      details: error.message 
+      details: errorMessage 
     }, { status: 500 });
   }
 }
