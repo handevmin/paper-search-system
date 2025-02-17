@@ -31,8 +31,12 @@ export async function POST(request: Request) {
     return NextResponse.json(data);
   } catch (error) {
     console.error('Claude API error:', error);
+    
+    // error 타입을 체크하여 안전하게 처리
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    
     return NextResponse.json(
-      { error: 'Failed to call Claude API', details: error.message },
+      { error: 'Failed to call Claude API', details: errorMessage },
       { status: 500 }
     );
   }
