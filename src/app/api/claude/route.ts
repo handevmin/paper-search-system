@@ -8,11 +8,11 @@ export async function POST(request: Request) {
     
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
+      headers: new Headers({
         'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY,
+        'x-api-key': CLAUDE_API_KEY || '',
         'anthropic-version': '2023-06-01'
-      },
+      }),
       body: JSON.stringify({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 1000,
