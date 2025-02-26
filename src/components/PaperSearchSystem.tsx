@@ -419,7 +419,7 @@ const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => 
 
     // 배치 크기를 작게 설정 (5개씩)
     const batchSize = 5;
-    let allReferencedPapers = [];
+    const allReferencedPapers = [];
 
     // 최대 결과 수 제한
     const idsToProcess = referenceIds.slice(0, maxResults);
@@ -766,7 +766,7 @@ const extractReferenceIds = (referencesData) => {
   };
 
   // Filter papers based on search text and active tab
-  const filterPapers = (allPapers: Paper[], searchText: string, tab: string) => {
+  const filterPapers = useCallback((allPapers: Paper[], searchText: string, tab: string) => {
     let filtered = allPapers;
     
     // Apply text filter
@@ -796,12 +796,12 @@ const extractReferenceIds = (referencesData) => {
     }
     
     return filtered;
-  };
-
+  }, [selectedPaper]);
+  
   // Handle filter change
   useEffect(() => {
     setFilteredPapers(filterPapers(papers, filterText, activeTab));
-  }, [filterText, activeTab]);
+  }, [filterText, activeTab, filterPapers, papers]);
 
   return (
     <div className="min-h-screen bg-gray-50">
