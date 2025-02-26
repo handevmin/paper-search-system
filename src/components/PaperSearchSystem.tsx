@@ -475,8 +475,8 @@ const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => 
               pmid: pmid,
               title: paperData.title || 'No title available',
               authors: Array.isArray(paperData.authors)
-                ? paperData.authors.map(author => author.name).join(', ')
-                : 'Unknown authors',
+              ? paperData.authors.map((author: { name: string }) => author.name).join(', ')
+              : 'Unknown authors',
               journal: paperData.source || 'Unknown journal',
               year: paperData.pubdate?.split(' ')[0] || 'Unknown year',
               abstract: abstractText,
