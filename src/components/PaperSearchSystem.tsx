@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Save, BookOpen, FileText, Clock, Star, ExternalLink, Copy } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -507,12 +507,25 @@ const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => 
   }
 };
 
-  const extractPMIDFromAbstract = (text) => {
-    const pmidMatch = text.match(/PMID:\s*(\d+)/i);
-    return pmidMatch ? pmidMatch[1] : null;
-  };
+const extractPMIDFromAbstract = (text: string): string | null => {
+  const pmidMatch = text.match(/PMID:\s*(\d+)/i);
+  return pmidMatch ? pmidMatch[1] : null;
+};
 
-const processPaperData = (paperData) => {
+interface PaperResponse {
+  summary: {
+    result: Record<string, {
+      uid: string;
+      title?: string;
+      authors?: Array<{name: string}>;
+      source?: string;
+      pubdate?: string;
+    }>;
+  };
+  full: string;
+}
+
+const processPaperData = (paperData: PaperResponse): Paper => {
   try {
     // XML 파싱
     const xmlDoc = parseXMLResponse(paperData.full);
@@ -531,7 +544,7 @@ const processPaperData = (paperData) => {
     // 논문 정보 찾기
     let abstractText = 'No abstract available';
     let doi = undefined;
-    let references = [];
+    const references: string[] = [];
     
     // XML에서 해당 논문 찾기
     for (let i = 0; i < articles.length; i++) {
@@ -547,8 +560,9 @@ const processPaperData = (paperData) => {
         doi = extractDOI(articles[i]);
         
         // 참고문헌 추출
-        references = extractReferences(articles[i]);
-        
+        const refs = extractReferences(articles[i]);
+        references.push(...refs);
+
         break;
       }
     }
@@ -590,8 +604,17 @@ const processPaperData = (paperData) => {
   }
 };
 
+interface ReferenceData {
+  linksets?: Array<{
+    linksetdbs?: Array<{
+      linkname?: string;
+      links?: Array<{id: string} | string>;
+    }>;
+  }>;
+}
+
 // 참고문헌 ID 추출 함수
-const extractReferenceIds = (referencesData) => {
+const extractReferenceIds = (referencesData: ReferenceData): string[] => {
   try {
     if (referencesData && referencesData.linksets && referencesData.linksets.length > 0) {
       const linkset = referencesData.linksets[0];
@@ -643,7 +666,7 @@ const extractReferenceIds = (referencesData) => {
           console.log('Reference IDs extracted:', refIds);
 
           // 3. 참고문헌 정보 가져오기
-          let referencesPapers = [];
+          let referencesPapers: Paper[] = [];
           if (refIds.length > 0) {
             referencesPapers = await findReferencedPapers(refIds, 50); // 최대 50개까지
           }
