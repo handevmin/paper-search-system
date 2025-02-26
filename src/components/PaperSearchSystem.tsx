@@ -172,13 +172,13 @@ Respond with a JSON object in this exact format (and nothing else):
   const extractReferences = (article: Element): string[] => {
     const references: string[] = [];
     const referenceList = article.querySelectorAll('Reference');
-    
+
     for (let i = 0; i < referenceList.length; i++) {
       // 여러 유형의 ID 처리
       const pmid = referenceList[i].querySelector('ArticleId[IdType="pubmed"]');
       const doi = referenceList[i].querySelector('ArticleId[IdType="doi"]');
       const refArticleId = referenceList[i].querySelector('ArticleId');
-      
+
       if (pmid && pmid.textContent) {
         references.push(pmid.textContent);
       } else if (doi && doi.textContent) {
@@ -188,7 +188,7 @@ Respond with a JSON object in this exact format (and nothing else):
         references.push(refArticleId.textContent);
       }
     }
-    
+
     return references;
   }
 
@@ -273,10 +273,10 @@ Respond with a JSON object in this exact format (and nothing else):
 
                 // Extract DOI
                 doi = extractDOI(articles[i]);
-                
+
                 // Extract references
                 references = extractReferences(articles[i]);
-                
+
                 break;
               }
             }
@@ -337,7 +337,7 @@ Respond with a JSON object in this exact format (and nothing else):
 
       const searchData = await searchResponse.json();
       const citationIds = searchData.esearchresult?.idlist || [];
-      
+
       if (citationIds.length === 0) {
         return [];
       }
@@ -411,227 +411,227 @@ Respond with a JSON object in this exact format (and nothing else):
 
   // Function to find papers referenced by a given paper
   // 참고문헌 논문 가져오기 함수 개선
-const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => {
-  try {
-    if (!referenceIds || referenceIds.length === 0) {
+  const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => {
+    try {
+      if (!referenceIds || referenceIds.length === 0) {
+        return [];
+      }
+
+      // 배치 크기를 작게 설정 (5개씩)
+      const batchSize = 5;
+      const allReferencedPapers = [];
+
+      // 최대 결과 수 제한
+      const idsToProcess = referenceIds.slice(0, maxResults);
+
+      // 배치 단위로 처리
+      for (let i = 0; i < idsToProcess.length; i += batchSize) {
+        const batchIds = idsToProcess.slice(i, i + batchSize);
+
+        // 로그 추가
+        console.log(`Processing batch ${i / batchSize + 1}, IDs:`, batchIds);
+
+        try {
+          // 각 ID를 개별적으로 처리 (API 오류 방지)
+          for (const id of batchIds) {
+            try {
+              const singleResponse = await fetch(`/api/pubmed?type=summary&term=${id}`);
+              if (!singleResponse.ok) continue;
+
+              const singleData = await singleResponse.json();
+              if (!singleData || !singleData.summary || !singleData.summary.result) {
+                console.log('Skipping invalid response for ID:', id);
+                continue;
+              }
+
+              const xmlDoc = parseXMLResponse(singleData.full);
+              const article = xmlDoc.querySelector('PubmedArticle');
+
+              if (!article) continue;
+
+              // 논문 정보 추출
+              const pmid = article.querySelector('PMID')?.textContent;
+              if (!pmid) continue;
+
+              const paperData = singleData.summary.result[pmid];
+              if (!paperData) continue;
+
+              // 초록 추출
+              let abstractText = 'No abstract available';
+              const abstractElement = article.querySelector('Abstract AbstractText');
+              if (abstractElement) {
+                abstractText = abstractElement.textContent || abstractText;
+              }
+
+              // DOI 추출
+              const doi = extractDOI(article);
+
+              // URL 구성
+              const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+
+              // 참고문헌 논문 정보 구성
+              const paper = {
+                id: pmid,
+                pmid: pmid,
+                title: paperData.title || 'No title available',
+                authors: Array.isArray(paperData.authors)
+                  ? paperData.authors.map((author: { name: string }) => author.name).join(', ')
+                  : 'Unknown authors',
+                journal: paperData.source || 'Unknown journal',
+                year: paperData.pubdate?.split(' ')[0] || 'Unknown year',
+                abstract: abstractText,
+                pubDate: paperData.pubdate || 'Unknown date',
+                doi: doi,
+                url: pmcId,
+                relevanceScore: 8, // 참고문헌은 관련성 높음
+                summary: "1. Referenced in the main paper\n2. Provides important background research\n3. Essential for understanding the research context"
+              };
+
+              allReferencedPapers.push(paper);
+            } catch (idError) {
+              console.error(`Error processing reference ID ${id}:`, idError);
+            }
+
+            // API 제한 방지를 위한 지연
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        } catch (batchError) {
+          console.error(`Error processing batch starting at index ${i}:`, batchError);
+        }
+      }
+
+      return allReferencedPapers;
+    } catch (error) {
+      console.error('Error finding referenced papers:', error);
       return [];
     }
-
-    // 배치 크기를 작게 설정 (5개씩)
-    const batchSize = 5;
-    const allReferencedPapers = [];
-
-    // 최대 결과 수 제한
-    const idsToProcess = referenceIds.slice(0, maxResults);
-    
-    // 배치 단위로 처리
-    for (let i = 0; i < idsToProcess.length; i += batchSize) {
-      const batchIds = idsToProcess.slice(i, i + batchSize);
-      
-      // 로그 추가
-      console.log(`Processing batch ${i/batchSize + 1}, IDs:`, batchIds);
-      
-      try {
-        // 각 ID를 개별적으로 처리 (API 오류 방지)
-        for (const id of batchIds) {
-          try {
-            const singleResponse = await fetch(`/api/pubmed?type=summary&term=${id}`);
-            if (!singleResponse.ok) continue;
-            
-            const singleData = await singleResponse.json();
-            if (!singleData || !singleData.summary || !singleData.summary.result) {
-              console.log('Skipping invalid response for ID:', id);
-              continue;
-            }
-            
-            const xmlDoc = parseXMLResponse(singleData.full);
-            const article = xmlDoc.querySelector('PubmedArticle');
-            
-            if (!article) continue;
-            
-            // 논문 정보 추출
-            const pmid = article.querySelector('PMID')?.textContent;
-            if (!pmid) continue;
-            
-            const paperData = singleData.summary.result[pmid];
-            if (!paperData) continue;
-            
-            // 초록 추출
-            let abstractText = 'No abstract available';
-            const abstractElement = article.querySelector('Abstract AbstractText');
-            if (abstractElement) {
-              abstractText = abstractElement.textContent || abstractText;
-            }
-            
-            // DOI 추출
-            const doi = extractDOI(article);
-            
-            // URL 구성
-            const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
-            
-            // 참고문헌 논문 정보 구성
-            const paper = {
-              id: pmid,
-              pmid: pmid,
-              title: paperData.title || 'No title available',
-              authors: Array.isArray(paperData.authors)
-              ? paperData.authors.map((author: { name: string }) => author.name).join(', ')
-              : 'Unknown authors',
-              journal: paperData.source || 'Unknown journal',
-              year: paperData.pubdate?.split(' ')[0] || 'Unknown year',
-              abstract: abstractText,
-              pubDate: paperData.pubdate || 'Unknown date',
-              doi: doi,
-              url: pmcId,
-              relevanceScore: 8, // 참고문헌은 관련성 높음
-              summary: "1. Referenced in the main paper\n2. Provides important background research\n3. Essential for understanding the research context"
-            };
-            
-            allReferencedPapers.push(paper);
-          } catch (idError) {
-            console.error(`Error processing reference ID ${id}:`, idError);
-          }
-          
-          // API 제한 방지를 위한 지연
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      } catch (batchError) {
-        console.error(`Error processing batch starting at index ${i}:`, batchError);
-      }
-    }
-
-    return allReferencedPapers;
-  } catch (error) {
-    console.error('Error finding referenced papers:', error);
-    return [];
-  }
-};
-
-const extractPMIDFromAbstract = (text: string): string | null => {
-  const pmidMatch = text.match(/PMID:\s*(\d+)/i);
-  return pmidMatch ? pmidMatch[1] : null;
-};
-
-interface PaperResponse {
-  summary: {
-    result: Record<string, {
-      uid: string;
-      title?: string;
-      authors?: Array<{name: string}>;
-      source?: string;
-      pubdate?: string;
-    }>;
   };
-  full: string;
-}
 
-const processPaperData = (paperData: PaperResponse): Paper => {
-  try {
-    // XML 파싱
-    const xmlDoc = parseXMLResponse(paperData.full);
-    const articles = xmlDoc.getElementsByTagName('PubmedArticle');
-    
-    // 결과 데이터 가져오기
-    const summaryResult = paperData.summary.result;
-    const pmid = Object.keys(summaryResult).find(key => key !== 'uids');
-    
-    if (!pmid) {
-      throw new Error('No PMID found in paper data');
-    }
-    
-    const paper = summaryResult[pmid];
-    
-    // 논문 정보 찾기
-    let abstractText = 'No abstract available';
-    let doi = undefined;
-    const references: string[] = [];
-    
-    // XML에서 해당 논문 찾기
-    for (let i = 0; i < articles.length; i++) {
-      const articlePmid = articles[i].querySelector('PMID')?.textContent;
-      if (articlePmid === pmid) {
-        // 초록 추출
-        const abstractElement = articles[i].querySelector('Abstract AbstractText');
-        if (abstractElement) {
-          abstractText = abstractElement.textContent || abstractText;
-        }
-        
-        // DOI 추출
-        doi = extractDOI(articles[i]);
-        
-        // 참고문헌 추출
-        const refs = extractReferences(articles[i]);
-        references.push(...refs);
+  const extractPMIDFromAbstract = (text: string): string | null => {
+    const pmidMatch = text.match(/PMID:\s*(\d+)/i);
+    return pmidMatch ? pmidMatch[1] : null;
+  };
 
-        break;
-      }
-    }
-    
-    // URL 구성
-    const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
-    
-    return {
-      id: pmid,
-      pmid: pmid,
-      title: paper.title || 'No title available',
-      authors: Array.isArray(paper.authors)
-        ? paper.authors.map(author => author.name).join(', ')
-        : 'Unknown authors',
-      journal: paper.source || 'Unknown journal',
-      year: paper.pubdate?.split(' ')[0] || 'Unknown year',
-      abstract: abstractText,
-      pubDate: paper.pubdate || 'Unknown date',
-      doi: doi,
-      url: pmcId,
-      references: references,
-      relevanceScore: 10, // 직접 검색된 논문은 높은 관련성 점수 부여
-      summary: "1. This paper was directly searched by PMID\n2. Full content and references are available\n3. Central paper for the research topic"
+  interface PaperResponse {
+    summary: {
+      result: Record<string, {
+        uid: string;
+        title?: string;
+        authors?: Array<{ name: string }>;
+        source?: string;
+        pubdate?: string;
+      }>;
     };
-  } catch (error) {
-    console.error('Error processing paper data:', error);
-    return {
-      id: 'unknown',
-      pmid: 'unknown',
-      title: 'Error loading paper',
-      authors: 'Unknown',
-      journal: 'Unknown',
-      year: 'Unknown',
-      abstract: 'An error occurred while loading this paper.',
-      pubDate: 'Unknown',
-      relevanceScore: 5,
-      summary: "1. Error occurred while loading paper\n2. Try again later\n3. Check PMID format and try searching again"
-    };
+    full: string;
   }
-};
 
-interface ReferenceData {
-  linksets?: Array<{
-    linksetdbs?: Array<{
-      linkname?: string;
-      links?: Array<{id: string} | string>;
+  const processPaperData = (paperData: PaperResponse): Paper => {
+    try {
+      // XML 파싱
+      const xmlDoc = parseXMLResponse(paperData.full);
+      const articles = xmlDoc.getElementsByTagName('PubmedArticle');
+
+      // 결과 데이터 가져오기
+      const summaryResult = paperData.summary.result;
+      const pmid = Object.keys(summaryResult).find(key => key !== 'uids');
+
+      if (!pmid) {
+        throw new Error('No PMID found in paper data');
+      }
+
+      const paper = summaryResult[pmid];
+
+      // 논문 정보 찾기
+      let abstractText = 'No abstract available';
+      let doi = undefined;
+      const references: string[] = [];
+
+      // XML에서 해당 논문 찾기
+      for (let i = 0; i < articles.length; i++) {
+        const articlePmid = articles[i].querySelector('PMID')?.textContent;
+        if (articlePmid === pmid) {
+          // 초록 추출
+          const abstractElement = articles[i].querySelector('Abstract AbstractText');
+          if (abstractElement) {
+            abstractText = abstractElement.textContent || abstractText;
+          }
+
+          // DOI 추출
+          doi = extractDOI(articles[i]);
+
+          // 참고문헌 추출
+          const refs = extractReferences(articles[i]);
+          references.push(...refs);
+
+          break;
+        }
+      }
+
+      // URL 구성
+      const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+
+      return {
+        id: pmid,
+        pmid: pmid,
+        title: paper.title || 'No title available',
+        authors: Array.isArray(paper.authors)
+          ? paper.authors.map(author => author.name).join(', ')
+          : 'Unknown authors',
+        journal: paper.source || 'Unknown journal',
+        year: paper.pubdate?.split(' ')[0] || 'Unknown year',
+        abstract: abstractText,
+        pubDate: paper.pubdate || 'Unknown date',
+        doi: doi,
+        url: pmcId,
+        references: references,
+        relevanceScore: 10, // 직접 검색된 논문은 높은 관련성 점수 부여
+        summary: "1. This paper was directly searched by PMID\n2. Full content and references are available\n3. Central paper for the research topic"
+      };
+    } catch (error) {
+      console.error('Error processing paper data:', error);
+      return {
+        id: 'unknown',
+        pmid: 'unknown',
+        title: 'Error loading paper',
+        authors: 'Unknown',
+        journal: 'Unknown',
+        year: 'Unknown',
+        abstract: 'An error occurred while loading this paper.',
+        pubDate: 'Unknown',
+        relevanceScore: 5,
+        summary: "1. Error occurred while loading paper\n2. Try again later\n3. Check PMID format and try searching again"
+      };
+    }
+  };
+
+  interface ReferenceData {
+    linksets?: Array<{
+      linksetdbs?: Array<{
+        linkname?: string;
+        links?: Array<{ id: string } | string>;
+      }>;
     }>;
-  }>;
-}
+  }
 
-// 참고문헌 ID 추출 함수
-const extractReferenceIds = (referencesData: ReferenceData): string[] => {
-  try {
-    if (referencesData && referencesData.linksets && referencesData.linksets.length > 0) {
-      const linkset = referencesData.linksets[0];
-      if (linkset.linksetdbs && linkset.linksetdbs.length > 0) {
-        const linksetdb = linkset.linksetdbs.find(db => db.linkname === 'pubmed_pubmed_refs');
-        if (linksetdb && linksetdb.links) {
-          // 객체 배열이 아닌 ID 문자열 배열로 변환
-          return linksetdb.links.map(link => typeof link === 'object' ? link.id : link);
+  // 참고문헌 ID 추출 함수
+  const extractReferenceIds = (referencesData: ReferenceData): string[] => {
+    try {
+      if (referencesData && referencesData.linksets && referencesData.linksets.length > 0) {
+        const linkset = referencesData.linksets[0];
+        if (linkset.linksetdbs && linkset.linksetdbs.length > 0) {
+          const linksetdb = linkset.linksetdbs.find(db => db.linkname === 'pubmed_pubmed_refs');
+          if (linksetdb && linksetdb.links) {
+            // 객체 배열이 아닌 ID 문자열 배열로 변환
+            return linksetdb.links.map(link => typeof link === 'object' ? link.id : link);
+          }
         }
       }
+      return [];
+    } catch (error) {
+      console.error('Error extracting reference IDs:', error);
+      return [];
     }
-    return [];
-  } catch (error) {
-    console.error('Error extracting reference IDs:', error);
-    return [];
-  }
-};
+  };
 
   const handleDiscussionSubmit = async () => {
     setLoading(true);
@@ -639,15 +639,15 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
     setFilteredPapers([]);
     setSelectedPaper(null);
     setActiveTab('all');
-    
+
     try {
       // 초록에서 PMID 추출 시도
       const pmid = extractPMIDFromAbstract(discussionText);
-      
+
       if (pmid) {
         // PMID가 발견된 경우 - 해당 논문과 참고문헌 모두 가져오기
         console.log('PMID found in abstract:', pmid);
-        
+
         // 1. 먼저 해당 논문 정보 가져오기
         const paperResponse = await fetch(`/api/pubmed?type=summary&term=${pmid}`);
         if (paperResponse.ok) {
@@ -655,7 +655,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
           console.log('Paper data response:', paperData); // 응답 구조 확인
 
           const mainPaper = processPaperData(paperData);
-          
+
           // 2. 참고문헌 가져오기
           const referencesResponse = await fetch(`/api/pubmed?type=references&term=${pmid}`);
           const referencesData = await referencesResponse.json();
@@ -670,7 +670,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
           if (refIds.length > 0) {
             referencesPapers = await findReferencedPapers(refIds, 50); // 최대 50개까지
           }
-                    
+
           // 4. 결과 합치기
           const allPapers = [mainPaper, ...referencesPapers];
           setPapers(allPapers);
@@ -678,48 +678,48 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
         }
       } else {
         // PMID가 없는 경우 기존 검색 흐름 사용
-      const terms = await generateSearchTerms(discussionText);
-      setSearchTerms(terms);
-      console.log('Generated search terms:', terms);
-  
-      const resultsPerTerm = Math.ceil(searchConfig.maxResults / terms.length);
-      
-      // 기본 검색 결과 가져오기
-      const allResults = [];
-      for (const term of terms) {
-        const results = await searchPubMed(term, resultsPerTerm);
-        allResults.push(results);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-  
-      // 결과 병합
-      const combinedResults = _.uniqBy(allResults.flat(), 'id');
-      let sortedResults = _.orderBy(combinedResults, ['relevanceScore'], ['desc']);
-      
-      // 추가: 상위 N개 논문의 레퍼런스도 검색 결과에 포함
-      if (searchConfig.includeReferences) {
-        const topPapers = sortedResults.slice(0, 1); // 상위 1개 논문만 고려
-        
-        for (const paper of topPapers) {
-          if (paper.references && paper.references.length > 0) {
-            const referencedPapers = await findReferencedPapers(paper.references, 30); // 더 많은 레퍼런스 가져오기
-            
-            // 새 레퍼런스 논문 추가
-            for (const refPaper of referencedPapers) {
-              if (!sortedResults.some(p => p.id === refPaper.id)) {
-                sortedResults.push(refPaper);
+        const terms = await generateSearchTerms(discussionText);
+        setSearchTerms(terms);
+        console.log('Generated search terms:', terms);
+
+        const resultsPerTerm = Math.ceil(searchConfig.maxResults / terms.length);
+
+        // 기본 검색 결과 가져오기
+        const allResults = [];
+        for (const term of terms) {
+          const results = await searchPubMed(term, resultsPerTerm);
+          allResults.push(results);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        // 결과 병합
+        const combinedResults = _.uniqBy(allResults.flat(), 'id');
+        let sortedResults = _.orderBy(combinedResults, ['relevanceScore'], ['desc']);
+
+        // 추가: 상위 N개 논문의 레퍼런스도 검색 결과에 포함
+        if (searchConfig.includeReferences) {
+          const topPapers = sortedResults.slice(0, 1); // 상위 1개 논문만 고려
+
+          for (const paper of topPapers) {
+            if (paper.references && paper.references.length > 0) {
+              const referencedPapers = await findReferencedPapers(paper.references, 30); // 더 많은 레퍼런스 가져오기
+
+              // 새 레퍼런스 논문 추가
+              for (const refPaper of referencedPapers) {
+                if (!sortedResults.some(p => p.id === refPaper.id)) {
+                  sortedResults.push(refPaper);
+                }
               }
             }
           }
+
+          // 결과 재정렬
+          sortedResults = _.orderBy(sortedResults, ['relevanceScore'], ['desc']);
         }
-        
-        // 결과 재정렬
-        sortedResults = _.orderBy(sortedResults, ['relevanceScore'], ['desc']);
+
+        setPapers(sortedResults);
+        setFilteredPapers(sortedResults);
       }
-  
-      setPapers(sortedResults);
-      setFilteredPapers(sortedResults);
-    }
     } catch (error) {
       console.error('Error in search:', error);
     } finally {
@@ -730,17 +730,17 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
 
   const handlePaperSelect = async (paper: Paper) => {
     setSelectedPaper(paper);
-    
+
     // If references or citations should be included and haven't been loaded yet
     if ((searchConfig.includeReferences || searchConfig.includeCitations) && !paper.citations) {
       try {
         const paperWithExtras = { ...paper };
-        
+
         // Load citations if needed
         if (searchConfig.includeCitations) {
           const citingPapers = await findCitingPapers(paper.pmid);
           paperWithExtras.citations = citingPapers.map(p => p.id);
-          
+
           // Add citations to papers array if not already present
           const newPapers = [...papers];
           citingPapers.forEach(citingPaper => {
@@ -751,11 +751,11 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
           setPapers(newPapers);
           setFilteredPapers(filterPapers(newPapers, filterText, activeTab));
         }
-        
+
         // Load references if needed and not already loaded
         if (searchConfig.includeReferences && paper.references && paper.references.length > 0) {
           const referencedPapers = await findReferencedPapers(paper.references);
-          
+
           // Add references to papers array if not already present
           const newPapers = [...papers];
           referencedPapers.forEach(refPaper => {
@@ -766,7 +766,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
           setPapers(newPapers);
           setFilteredPapers(filterPapers(newPapers, filterText, activeTab));
         }
-        
+
         setSelectedPaper(paperWithExtras);
       } catch (error) {
         console.error('Error loading paper references/citations:', error);
@@ -791,36 +791,36 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
   // Filter papers based on search text and active tab
   const filterPapers = useCallback((allPapers: Paper[], searchText: string, tab: string) => {
     let filtered = allPapers;
-    
+
     // Apply text filter
     if (searchText.trim() !== '') {
       const lowerSearchText = searchText.toLowerCase();
-      filtered = filtered.filter(paper => 
+      filtered = filtered.filter(paper =>
         paper.title.toLowerCase().includes(lowerSearchText) ||
         paper.abstract.toLowerCase().includes(lowerSearchText) ||
         paper.authors.toLowerCase().includes(lowerSearchText) ||
         paper.journal.toLowerCase().includes(lowerSearchText)
       );
     }
-    
+
     // Apply tab filter
     if (tab === 'recent') {
       filtered = _.orderBy(filtered, ['year', 'relevanceScore'], ['desc', 'desc']);
     } else if (tab === 'relevant') {
       filtered = _.orderBy(filtered, ['relevanceScore'], ['desc']);
     } else if (tab === 'citations' && selectedPaper) {
-      filtered = filtered.filter(paper => 
+      filtered = filtered.filter(paper =>
         selectedPaper.citations?.includes(paper.id)
       );
     } else if (tab === 'references' && selectedPaper) {
-      filtered = filtered.filter(paper => 
+      filtered = filtered.filter(paper =>
         selectedPaper.references?.includes(paper.id)
       );
     }
-    
+
     return filtered;
   }, [selectedPaper]);
-  
+
   // Handle filter change
   useEffect(() => {
     setFilteredPapers(filterPapers(papers, filterText, activeTab));
@@ -851,7 +851,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
               className="mb-4 h-40 resize-none"
               placeholder="Enter your research discussion content here..."
             />
-            
+
             <div className="grid md:grid-cols-3 gap-4 mb-4">
               <div>
                 <Label htmlFor="maxResults">Maximum Papers to Retrieve</Label>
@@ -867,12 +867,12 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                   })}
                 />
               </div>
-              
+
               <div className="flex items-center space-x-2">
-                <Checkbox 
+                <Checkbox
                   id="includeCitations"
                   checked={searchConfig.includeCitations}
-                  onCheckedChange={(checked) => 
+                  onCheckedChange={(checked) =>
                     setSearchConfig({
                       ...searchConfig,
                       includeCitations: !!checked
@@ -881,12 +881,12 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                 />
                 <Label htmlFor="includeCitations">Include Citing Papers</Label>
               </div>
-              
+
               <div className="flex items-center space-x-2">
-                <Checkbox 
+                <Checkbox
                   id="includeReferences"
                   checked={searchConfig.includeReferences}
-                  onCheckedChange={(checked) => 
+                  onCheckedChange={(checked) =>
                     setSearchConfig({
                       ...searchConfig,
                       includeReferences: !!checked
@@ -896,7 +896,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                 <Label htmlFor="includeReferences">Include Referenced Papers</Label>
               </div>
             </div>
-            
+
             <Button
               onClick={handleDiscussionSubmit}
               disabled={loading}
@@ -941,8 +941,8 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
         {loading && searchProgress.total > 0 && (
           <div className="mb-6">
             <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
-              <div 
-                className="bg-blue-600 h-2.5 rounded-full" 
+              <div
+                className="bg-blue-600 h-2.5 rounded-full"
                 style={{ width: `${(searchProgress.current / searchProgress.total) * 100}%` }}
               ></div>
             </div>
@@ -962,7 +962,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                   <CardTitle className="text-lg">Found Papers</CardTitle>
                   <Badge variant="outline">{filteredPapers.length} papers</Badge>
                 </div>
-                
+
                 <div className="mt-2">
                   <Input
                     placeholder="Filter papers..."
@@ -970,14 +970,14 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                     onChange={(e) => setFilterText(e.target.value)}
                     className="mb-2"
                   />
-                  
+
                   <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
                     <TabsList className="grid grid-cols-4">
                       <TabsTrigger value="all">All</TabsTrigger>
                       <TabsTrigger value="relevant">Relevant</TabsTrigger>
                       <TabsTrigger value="recent">Recent</TabsTrigger>
-                      <TabsTrigger 
-                        value="citations" 
+                      <TabsTrigger
+                        value="citations"
                         disabled={!selectedPaper || !selectedPaper.citations}
                       >
                         Citations
@@ -986,7 +986,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                   </Tabs>
                 </div>
               </CardHeader>
-              
+
               <ScrollArea className="h-[calc(100vh-400px)]">
                 <div className="p-4 space-y-4">
                   {loading ? (
@@ -999,38 +999,38 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                         key={paper.id}
                         className={`p-4 rounded-lg border transition-all cursor-pointer
                         ${selectedPaper?.id === paper.id
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-400 hover:bg-gray-50'}`}
+                            ? 'border-blue-600 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-400 hover:bg-gray-50'}`}
                         onClick={() => handlePaperSelect(paper)}
                       >
                         <h3 className="font-medium text-sm line-clamp-2 mb-2">{paper.title}</h3>
-                        
+
                         <div className="flex flex-wrap gap-2 mb-2">
                           <Badge variant="outline" className="text-xs bg-gray-100">
                             <Clock className="h-3 w-3 mr-1" />
                             {paper.year}
                           </Badge>
-                          
+
                           <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800">
                             <Star className="h-3 w-3 mr-1" />
                             Score: {paper.relevanceScore}/10
                           </Badge>
-                          
+
                           <Badge variant="outline" className="text-xs">
                             PMID: {paper.pmid}
                           </Badge>
                         </div>
-                        
+
                         <div className="mt-2 text-xs text-gray-600 line-clamp-2">
                           {paper.authors}
                         </div>
-                        
+
                         <div className="mt-2">
                           <div className={`text-xs text-gray-700 ${expandedAbstracts[paper.id] ? '' : 'line-clamp-3'}`}>
                             <span className="font-medium">Abstract:</span> {paper.abstract}
                           </div>
                           {paper.abstract.length > 150 && (
-                            <button 
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleAbstractExpansion(paper.id);
@@ -1041,7 +1041,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                             </button>
                           )}
                         </div>
-                        
+
                         <div className="flex justify-between items-center mt-2">
                           <div className="flex gap-2">
                             {paper.references && paper.references.length > 0 && (
@@ -1055,7 +1055,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                               </Badge>
                             )}
                           </div>
-                          
+
                           <div className="flex gap-1">
                             <Button
                               variant="ghost"
@@ -1070,7 +1070,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
-                            
+
                             {paper.url && (
                               <Button
                                 variant="ghost"
@@ -1107,7 +1107,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
                       <h2 className="text-2xl font-bold">{selectedPaper.title}</h2>
-                      
+
                       <div className="flex gap-2">
                         {selectedPaper.url && (
                           <Button
@@ -1120,7 +1120,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                             Open Paper
                           </Button>
                         )}
-                        
+
                         <Button
                           variant="outline"
                           size="sm"
@@ -1132,28 +1132,28 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                         </Button>
                       </div>
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-3 mb-6">
                       <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200">
                         <Star className="h-4 w-4 mr-1" />
                         Relevance: {selectedPaper.relevanceScore}/10
                       </Badge>
-                      
+
                       <Badge variant="outline" className="hover:bg-gray-100">
                         PMID: {selectedPaper.pmid}
                       </Badge>
-                      
+
                       {selectedPaper.doi && (
                         <Badge variant="outline" className="hover:bg-gray-100">
                           DOI: {selectedPaper.doi}
                         </Badge>
                       )}
-                      
+
                       <Badge variant="outline" className="hover:bg-gray-100">
                         <Clock className="h-4 w-4 mr-1" />
                         {selectedPaper.pubDate}
                       </Badge>
-                      
+
                       <Badge variant="outline" className="hover:bg-gray-100">
                         <BookOpen className="h-4 w-4 mr-1" />
                         {selectedPaper.journal}
@@ -1175,8 +1175,8 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                       <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                           <CardTitle className="text-sm font-medium">Abstract</CardTitle>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="sm"
                             onClick={() => copyToClipboard(selectedPaper.abstract)}
                             className="h-8 px-2 text-gray-500"
@@ -1199,7 +1199,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                           <p className="text-sm text-gray-600 whitespace-pre-line">{selectedPaper.summary}</p>
                         </CardContent>
                       </Card>
-                      
+
                       {/* Citations Tab */}
                       {selectedPaper.citations && selectedPaper.citations.length > 0 && (
                         <Card>
@@ -1221,7 +1221,7 @@ const extractReferenceIds = (referencesData: ReferenceData): string[] => {
                           </CardContent>
                         </Card>
                       )}
-                      
+
                       {/* References Tab */}
                       {selectedPaper.references && selectedPaper.references.length > 0 && (
                         <Card>
