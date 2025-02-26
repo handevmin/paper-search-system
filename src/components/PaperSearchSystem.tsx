@@ -174,14 +174,23 @@ Respond with a JSON object in this exact format (and nothing else):
     const referenceList = article.querySelectorAll('Reference');
     
     for (let i = 0; i < referenceList.length; i++) {
+      // 여러 유형의 ID 처리
+      const pmid = referenceList[i].querySelector('ArticleId[IdType="pubmed"]');
+      const doi = referenceList[i].querySelector('ArticleId[IdType="doi"]');
       const refArticleId = referenceList[i].querySelector('ArticleId');
-      if (refArticleId && refArticleId.textContent) {
+      
+      if (pmid && pmid.textContent) {
+        references.push(pmid.textContent);
+      } else if (doi && doi.textContent) {
+        // DOI가 있지만 PMID가 없는 경우 처리 (필요시)
+        console.log('Reference with DOI but no PMID:', doi.textContent);
+      } else if (refArticleId && refArticleId.textContent) {
         references.push(refArticleId.textContent);
       }
     }
     
     return references;
-  };
+  }
 
   // Function to search PubMed
   const searchPubMed = async (searchTerm: string, maxResults = DEFAULT_MAX_RESULTS) => {
@@ -401,81 +410,205 @@ Respond with a JSON object in this exact format (and nothing else):
   };
 
   // Function to find papers referenced by a given paper
-  const findReferencedPapers = async (referenceIds: string[], maxResults = 10) => {
-    try {
-      if (referenceIds.length === 0) {
-        return [];
-      }
-
-      // Limit to max number of references
-      const limitedRefs = referenceIds.slice(0, maxResults);
-      
-      // Get data for reference IDs
-      const summaryResponse = await fetch(`/api/pubmed?type=summary&term=${limitedRefs.join(',')}`);
-      if (!summaryResponse.ok) {
-        throw new Error('PubMed reference summary fetch failed');
-      }
-
-      const summaryData = await summaryResponse.json();
-      const xmlDoc = parseXMLResponse(summaryData.full);
-      const articles = xmlDoc.getElementsByTagName('PubmedArticle');
-      const summaryResult = summaryData.summary.result;
-
-      const referencedPapers = Object.entries(summaryResult || {})
-        .filter(([key]) => key !== 'uids')
-        .map(([_, paper]) => {
-          const typedPaper = paper as {
-            uid: string;
-            title: string;
-            authors: Array<{ name: string }>;
-            source: string;
-            pubdate: string;
-          };
-
-          // Get abstract and other data from XML
-          const articleId = typedPaper.uid;
-          let abstractText = 'No abstract available';
-          let doi: string | undefined;
-
-          // Find the corresponding article in XML
-          for (let i = 0; i < articles.length; i++) {
-            const articlePmid = articles[i].querySelector('PMID')?.textContent;
-            if (articlePmid === articleId) {
-              const abstractElement = articles[i].querySelector('Abstract AbstractText');
-              if (abstractElement) {
-                abstractText = abstractElement.textContent || abstractText;
-              }
-              doi = extractDOI(articles[i]);
-              break;
-            }
-          }
-
-          const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${articleId}/`;
-
-          return {
-            id: typedPaper.uid,
-            pmid: typedPaper.uid,
-            title: typedPaper.title || 'No title available',
-            authors: Array.isArray(typedPaper.authors)
-              ? typedPaper.authors.map(author => author.name).join(', ')
-              : 'Unknown authors',
-            journal: typedPaper.source || 'Unknown journal',
-            year: typedPaper.pubdate?.split(' ')[0] || 'Unknown year',
-            abstract: abstractText,
-            pubDate: typedPaper.pubdate || 'Unknown date',
-            doi: doi,
-            url: pmcId,
-            relevanceScore: 6, // Default score for referenced papers
-            summary: "1. Referenced in the selected paper\n2. Provides foundational background research\n3. Important for understanding the context of the selected work"
-          };
-        });
-
-      return referencedPapers;
-    } catch (error) {
-      console.error('Error finding referenced papers:', error);
+  // 참고문헌 논문 가져오기 함수 개선
+const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => {
+  try {
+    if (!referenceIds || referenceIds.length === 0) {
       return [];
     }
+
+    // 배치 크기를 작게 설정 (5개씩)
+    const batchSize = 5;
+    let allReferencedPapers = [];
+
+    // 최대 결과 수 제한
+    const idsToProcess = referenceIds.slice(0, maxResults);
+    
+    // 배치 단위로 처리
+    for (let i = 0; i < idsToProcess.length; i += batchSize) {
+      const batchIds = idsToProcess.slice(i, i + batchSize);
+      
+      // 로그 추가
+      console.log(`Processing batch ${i/batchSize + 1}, IDs:`, batchIds);
+      
+      try {
+        // 각 ID를 개별적으로 처리 (API 오류 방지)
+        for (const id of batchIds) {
+          try {
+            const singleResponse = await fetch(`/api/pubmed?type=summary&term=${id}`);
+            if (!singleResponse.ok) continue;
+            
+            const singleData = await singleResponse.json();
+            if (!singleData || !singleData.summary || !singleData.summary.result) {
+              console.log('Skipping invalid response for ID:', id);
+              continue;
+            }
+            
+            const xmlDoc = parseXMLResponse(singleData.full);
+            const article = xmlDoc.querySelector('PubmedArticle');
+            
+            if (!article) continue;
+            
+            // 논문 정보 추출
+            const pmid = article.querySelector('PMID')?.textContent;
+            if (!pmid) continue;
+            
+            const paperData = singleData.summary.result[pmid];
+            if (!paperData) continue;
+            
+            // 초록 추출
+            let abstractText = 'No abstract available';
+            const abstractElement = article.querySelector('Abstract AbstractText');
+            if (abstractElement) {
+              abstractText = abstractElement.textContent || abstractText;
+            }
+            
+            // DOI 추출
+            const doi = extractDOI(article);
+            
+            // URL 구성
+            const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+            
+            // 참고문헌 논문 정보 구성
+            const paper = {
+              id: pmid,
+              pmid: pmid,
+              title: paperData.title || 'No title available',
+              authors: Array.isArray(paperData.authors)
+                ? paperData.authors.map(author => author.name).join(', ')
+                : 'Unknown authors',
+              journal: paperData.source || 'Unknown journal',
+              year: paperData.pubdate?.split(' ')[0] || 'Unknown year',
+              abstract: abstractText,
+              pubDate: paperData.pubdate || 'Unknown date',
+              doi: doi,
+              url: pmcId,
+              relevanceScore: 8, // 참고문헌은 관련성 높음
+              summary: "1. Referenced in the main paper\n2. Provides important background research\n3. Essential for understanding the research context"
+            };
+            
+            allReferencedPapers.push(paper);
+          } catch (idError) {
+            console.error(`Error processing reference ID ${id}:`, idError);
+          }
+          
+          // API 제한 방지를 위한 지연
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      } catch (batchError) {
+        console.error(`Error processing batch starting at index ${i}:`, batchError);
+      }
+    }
+
+    return allReferencedPapers;
+  } catch (error) {
+    console.error('Error finding referenced papers:', error);
+    return [];
+  }
+};
+
+  const extractPMIDFromAbstract = (text) => {
+    const pmidMatch = text.match(/PMID:\s*(\d+)/i);
+    return pmidMatch ? pmidMatch[1] : null;
   };
+
+const processPaperData = (paperData) => {
+  try {
+    // XML 파싱
+    const xmlDoc = parseXMLResponse(paperData.full);
+    const articles = xmlDoc.getElementsByTagName('PubmedArticle');
+    
+    // 결과 데이터 가져오기
+    const summaryResult = paperData.summary.result;
+    const pmid = Object.keys(summaryResult).find(key => key !== 'uids');
+    
+    if (!pmid) {
+      throw new Error('No PMID found in paper data');
+    }
+    
+    const paper = summaryResult[pmid];
+    
+    // 논문 정보 찾기
+    let abstractText = 'No abstract available';
+    let doi = undefined;
+    let references = [];
+    
+    // XML에서 해당 논문 찾기
+    for (let i = 0; i < articles.length; i++) {
+      const articlePmid = articles[i].querySelector('PMID')?.textContent;
+      if (articlePmid === pmid) {
+        // 초록 추출
+        const abstractElement = articles[i].querySelector('Abstract AbstractText');
+        if (abstractElement) {
+          abstractText = abstractElement.textContent || abstractText;
+        }
+        
+        // DOI 추출
+        doi = extractDOI(articles[i]);
+        
+        // 참고문헌 추출
+        references = extractReferences(articles[i]);
+        
+        break;
+      }
+    }
+    
+    // URL 구성
+    const pmcId = doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+    
+    return {
+      id: pmid,
+      pmid: pmid,
+      title: paper.title || 'No title available',
+      authors: Array.isArray(paper.authors)
+        ? paper.authors.map(author => author.name).join(', ')
+        : 'Unknown authors',
+      journal: paper.source || 'Unknown journal',
+      year: paper.pubdate?.split(' ')[0] || 'Unknown year',
+      abstract: abstractText,
+      pubDate: paper.pubdate || 'Unknown date',
+      doi: doi,
+      url: pmcId,
+      references: references,
+      relevanceScore: 10, // 직접 검색된 논문은 높은 관련성 점수 부여
+      summary: "1. This paper was directly searched by PMID\n2. Full content and references are available\n3. Central paper for the research topic"
+    };
+  } catch (error) {
+    console.error('Error processing paper data:', error);
+    return {
+      id: 'unknown',
+      pmid: 'unknown',
+      title: 'Error loading paper',
+      authors: 'Unknown',
+      journal: 'Unknown',
+      year: 'Unknown',
+      abstract: 'An error occurred while loading this paper.',
+      pubDate: 'Unknown',
+      relevanceScore: 5,
+      summary: "1. Error occurred while loading paper\n2. Try again later\n3. Check PMID format and try searching again"
+    };
+  }
+};
+
+// 참고문헌 ID 추출 함수
+const extractReferenceIds = (referencesData) => {
+  try {
+    if (referencesData && referencesData.linksets && referencesData.linksets.length > 0) {
+      const linkset = referencesData.linksets[0];
+      if (linkset.linksetdbs && linkset.linksetdbs.length > 0) {
+        const linksetdb = linkset.linksetdbs.find(db => db.linkname === 'pubmed_pubmed_refs');
+        if (linksetdb && linksetdb.links) {
+          // 객체 배열이 아닌 ID 문자열 배열로 변환
+          return linksetdb.links.map(link => typeof link === 'object' ? link.id : link);
+        }
+      }
+    }
+    return [];
+  } catch (error) {
+    console.error('Error extracting reference IDs:', error);
+    return [];
+  }
+};
 
   const handleDiscussionSubmit = async () => {
     setLoading(true);
@@ -485,32 +618,85 @@ Respond with a JSON object in this exact format (and nothing else):
     setActiveTab('all');
     
     try {
-      // Generate search terms
+      // 초록에서 PMID 추출 시도
+      const pmid = extractPMIDFromAbstract(discussionText);
+      
+      if (pmid) {
+        // PMID가 발견된 경우 - 해당 논문과 참고문헌 모두 가져오기
+        console.log('PMID found in abstract:', pmid);
+        
+        // 1. 먼저 해당 논문 정보 가져오기
+        const paperResponse = await fetch(`/api/pubmed?type=summary&term=${pmid}`);
+        if (paperResponse.ok) {
+          const paperData = await paperResponse.json();
+          console.log('Paper data response:', paperData); // 응답 구조 확인
+
+          const mainPaper = processPaperData(paperData);
+          
+          // 2. 참고문헌 가져오기
+          const referencesResponse = await fetch(`/api/pubmed?type=references&term=${pmid}`);
+          const referencesData = await referencesResponse.json();
+          console.log('References data response:', referencesData); // 응답 구조 확인
+
+          const refIds = extractReferenceIds(referencesData);
+
+          console.log('Reference IDs extracted:', refIds);
+
+          // 3. 참고문헌 정보 가져오기
+          let referencesPapers = [];
+          if (refIds.length > 0) {
+            referencesPapers = await findReferencedPapers(refIds, 50); // 최대 50개까지
+          }
+                    
+          // 4. 결과 합치기
+          const allPapers = [mainPaper, ...referencesPapers];
+          setPapers(allPapers);
+          setFilteredPapers(allPapers);
+        }
+      } else {
+        // PMID가 없는 경우 기존 검색 흐름 사용
       const terms = await generateSearchTerms(discussionText);
       setSearchTerms(terms);
       console.log('Generated search terms:', terms);
-
-      // Search for each term sequentially
-      const allResults = [];
-      
-      // Calculate how many results to get per term to reach the desired total
+  
       const resultsPerTerm = Math.ceil(searchConfig.maxResults / terms.length);
       
+      // 기본 검색 결과 가져오기
+      const allResults = [];
       for (const term of terms) {
         const results = await searchPubMed(term, resultsPerTerm);
         allResults.push(results);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-
-      // Combine and sort results
+  
+      // 결과 병합
       const combinedResults = _.uniqBy(allResults.flat(), 'id');
-      console.log('Combined results:', combinedResults);
-
-      const sortedResults = _.orderBy(combinedResults, ['relevanceScore'], ['desc']);
-      console.log('Sorted results:', sortedResults);
-
+      let sortedResults = _.orderBy(combinedResults, ['relevanceScore'], ['desc']);
+      
+      // 추가: 상위 N개 논문의 레퍼런스도 검색 결과에 포함
+      if (searchConfig.includeReferences) {
+        const topPapers = sortedResults.slice(0, 1); // 상위 1개 논문만 고려
+        
+        for (const paper of topPapers) {
+          if (paper.references && paper.references.length > 0) {
+            const referencedPapers = await findReferencedPapers(paper.references, 30); // 더 많은 레퍼런스 가져오기
+            
+            // 새 레퍼런스 논문 추가
+            for (const refPaper of referencedPapers) {
+              if (!sortedResults.some(p => p.id === refPaper.id)) {
+                sortedResults.push(refPaper);
+              }
+            }
+          }
+        }
+        
+        // 결과 재정렬
+        sortedResults = _.orderBy(sortedResults, ['relevanceScore'], ['desc']);
+      }
+  
       setPapers(sortedResults);
       setFilteredPapers(sortedResults);
+    }
     } catch (error) {
       console.error('Error in search:', error);
     } finally {
