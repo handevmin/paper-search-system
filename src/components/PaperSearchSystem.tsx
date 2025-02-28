@@ -690,7 +690,7 @@ Respond with a JSON object in this exact format (and nothing else):
 
     try {
       // 초기 논문 결과 배열
-      let allResults: Paper[] = [];
+      const allResults: Paper[] = [];
 
       // 1. 초록에서 PMID 직접 추출 시도 (가장 명확한 식별자)
       let pmid = extractPMIDFromAbstract(discussionText);
