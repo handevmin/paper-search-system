@@ -409,8 +409,7 @@ Respond with a JSON object in this exact format (and nothing else):
     }
   };
 
-  // Function to find papers referenced by a given paper
-  // 참고문헌 논문 가져오기 함수 개선
+  // 참고문헌 논문 가져오기 함수
   const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => {
     try {
       if (!referenceIds || referenceIds.length === 0) {
@@ -633,6 +632,55 @@ Respond with a JSON object in this exact format (and nothing else):
     }
   };
 
+  // Perplexity API를 사용하여 초록으로부터 논문의 PMID 찾기
+  const findPMIDWithPerplexity = async (abstract: string): Promise<string | null> => {
+    try {
+      console.log('Searching with Perplexity API');
+
+      const response = await fetch('/api/perplexity', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ abstract })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Perplexity API request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('Perplexity API response:', data);
+
+      // Perplexity 응답에서 PMID 추출
+      if (data.choices && data.choices.length > 0) {
+        const responseText = data.choices[0].message.content.trim();
+
+        // PMID만 응답으로 받았는지 확인
+        if (/^\d{8}$/.test(responseText)) {
+          return responseText;
+        }
+
+        // 또는 응답 텍스트에서 PMID 패턴 추출
+        const pmidMatch = responseText.match(/PMID:?\s*(\d{8})/i) ||
+          responseText.match(/\b(\d{8})\b/);
+
+        if (pmidMatch) {
+          return pmidMatch[1];
+        }
+
+        if (responseText !== 'NOT_FOUND') {
+          console.log('Unexpected response format from Perplexity:', responseText);
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error finding PMID with Perplexity API:', error);
+      return null;
+    }
+  };
+
   const handleDiscussionSubmit = async () => {
     setLoading(true);
     setPapers([]);
@@ -641,85 +689,85 @@ Respond with a JSON object in this exact format (and nothing else):
     setActiveTab('all');
 
     try {
-      // 초록에서 PMID 추출 시도
-      const pmid = extractPMIDFromAbstract(discussionText);
+      // 초기 논문 결과 배열
+      let allResults: Paper[] = [];
 
+      // 1. 초록에서 PMID 직접 추출 시도 (가장 명확한 식별자)
+      let pmid = extractPMIDFromAbstract(discussionText);
+
+      // PMID 추출 실패 시 Perplexity API 검색 시도
+      if (!pmid) {
+        console.log('PMID not found in text, trying Perplexity API search');
+        pmid = await findPMIDWithPerplexity(discussionText);
+
+        if (pmid) {
+          console.log('PMID found via Perplexity API search:', pmid);
+        }
+      }
+
+      // 2. PMID로 메인 논문과 참고문헌 가져오기 (존재하는 경우)
       if (pmid) {
-        // PMID가 발견된 경우 - 해당 논문과 참고문헌 모두 가져오기
-        console.log('PMID found in abstract:', pmid);
+        console.log('Using PMID for search:', pmid);
 
-        // 1. 먼저 해당 논문 정보 가져오기
+        // 2.1 메인 논문 정보 가져오기
         const paperResponse = await fetch(`/api/pubmed?type=summary&term=${pmid}`);
         if (paperResponse.ok) {
           const paperData = await paperResponse.json();
-          console.log('Paper data response:', paperData); // 응답 구조 확인
+          const mainPaper = {
+            ...processPaperData(paperData),
+            isMainPaper: true  // 메인 논문 표시
+          };
 
-          const mainPaper = processPaperData(paperData);
+          allResults.push(mainPaper);
 
-          // 2. 참고문헌 가져오기
+          // 2.2 참고문헌 가져오기
           const referencesResponse = await fetch(`/api/pubmed?type=references&term=${pmid}`);
           const referencesData = await referencesResponse.json();
-          console.log('References data response:', referencesData); // 응답 구조 확인
-
           const refIds = extractReferenceIds(referencesData);
 
-          console.log('Reference IDs extracted:', refIds);
-
-          // 3. 참고문헌 정보 가져오기
-          let referencesPapers: Paper[] = [];
+          // 2.3 참고문헌 정보 가져오기
           if (refIds.length > 0) {
-            referencesPapers = await findReferencedPapers(refIds, 50); // 최대 50개까지
+            const referencesPapers = await findReferencedPapers(refIds, 15); // 참고문헌 수 제한 (15개로)
+            allResults.push(...referencesPapers);
           }
-
-          // 4. 결과 합치기
-          const allPapers = [mainPaper, ...referencesPapers];
-          setPapers(allPapers);
-          setFilteredPapers(allPapers);
         }
-      } else {
-        // PMID가 없는 경우 기존 검색 흐름 사용
-        const terms = await generateSearchTerms(discussionText);
-        setSearchTerms(terms);
-        console.log('Generated search terms:', terms);
-
-        const resultsPerTerm = Math.ceil(searchConfig.maxResults / terms.length);
-
-        // 기본 검색 결과 가져오기
-        const allResults = [];
-        for (const term of terms) {
-          const results = await searchPubMed(term, resultsPerTerm);
-          allResults.push(results);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-        // 결과 병합
-        const combinedResults = _.uniqBy(allResults.flat(), 'id');
-        let sortedResults = _.orderBy(combinedResults, ['relevanceScore'], ['desc']);
-
-        // 추가: 상위 N개 논문의 레퍼런스도 검색 결과에 포함
-        if (searchConfig.includeReferences) {
-          const topPapers = sortedResults.slice(0, 1); // 상위 1개 논문만 고려
-
-          for (const paper of topPapers) {
-            if (paper.references && paper.references.length > 0) {
-              const referencedPapers = await findReferencedPapers(paper.references, 30); // 더 많은 레퍼런스 가져오기
-
-              // 새 레퍼런스 논문 추가
-              for (const refPaper of referencedPapers) {
-                if (!sortedResults.some(p => p.id === refPaper.id)) {
-                  sortedResults.push(refPaper);
-                }
-              }
-            }
-          }
-
-          // 결과 재정렬
-          sortedResults = _.orderBy(sortedResults, ['relevanceScore'], ['desc']);
-        }
-
-        setPapers(sortedResults);
-        setFilteredPapers(sortedResults);
       }
+
+      // 3. 키워드 기반 검색 (항상 수행하여 다양한 관련 논문 확보)
+      console.log('Generating search terms for text analysis');
+      const terms = await generateSearchTerms(discussionText);
+      setSearchTerms(terms);
+
+      // 각 검색어당 가져올 논문 수 설정
+      const resultsPerTerm = Math.max(3, Math.ceil(searchConfig.maxResults / terms.length));
+
+      // 키워드로 추가 논문 검색
+      const keywordResults = [];
+      for (const term of terms.slice(0, 5)) { // 상위 5개 검색어만 사용
+        const results = await searchPubMed(term, resultsPerTerm);
+        keywordResults.push(...results);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // API 제한 방지
+      }
+
+      // 4. 모든 결과 합치기 (중복 제거)
+      // 이미 가져온 논문의 PMID 목록
+      const existingPmids = allResults.map(paper => paper.pmid);
+
+      // 중복되지 않는 키워드 검색 결과만 추가
+      const uniqueKeywordResults = keywordResults.filter(paper =>
+        !existingPmids.includes(paper.pmid)
+      );
+
+      // 최종 결과 구성 (메인 논문, 참고문헌, 키워드 검색 결과)
+      const finalResults = [...allResults, ...uniqueKeywordResults];
+
+      // 관련성 점수로 정렬
+      const sortedResults = _.orderBy(finalResults, ['isMainPaper', 'relevanceScore'], ['desc', 'desc']);
+
+      console.log('Final results count:', sortedResults.length);
+
+      setPapers(sortedResults);
+      setFilteredPapers(sortedResults);
     } catch (error) {
       console.error('Error in search:', error);
     } finally {
