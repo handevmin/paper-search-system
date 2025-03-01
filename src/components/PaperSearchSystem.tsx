@@ -410,14 +410,14 @@ Respond with a JSON object in this exact format (and nothing else):
   };
 
   // 참고문헌 논문 가져오기 함수
-  const findReferencedPapers = async (referenceIds: string[], maxResults = 50) => {
+  const findReferencedPapers = async (referenceIds: string[], maxResults = 100) => {
     try {
       if (!referenceIds || referenceIds.length === 0) {
         return [];
       }
 
-      // 배치 크기를 작게 설정 (5개씩)
-      const batchSize = 5;
+      // 배치 크기를 작게 설정 (10개씩)
+      const batchSize = 10;
       const allReferencedPapers = [];
 
       // 최대 결과 수 제한
@@ -735,7 +735,10 @@ const findPMIDWithPerplexity = async (abstract: string): Promise<string | null> 
           // 2.3 참고문헌 정보 가져오기
           let referencesPapers: Paper[] = [];
           if (refIds.length > 0) {
-            referencesPapers = await findReferencedPapers(refIds, 20); // 참고문헌 수 제한 (20개로)
+            // 최대 결과 수에 따라 참고문헌 수 조정
+            // searchConfig.maxResults의 80%를 참고문헌에 할당
+            const maxReferencesToGet = Math.floor(searchConfig.maxResults * 0.8);
+            referencesPapers = await findReferencedPapers(refIds, maxReferencesToGet);
           }
           
           // 2.4 메인 논문과 참고문헌 추가
@@ -753,7 +756,11 @@ const findPMIDWithPerplexity = async (abstract: string): Promise<string | null> 
       
       // 각 검색어에 대해 더 많은 결과를 가져와서 나중에 필터링
       const keywordsToUse = terms.slice(0, 5); // 상위 5개 키워드만 사용
-      const resultsPerKeyword = 5; // 키워드당 5개 결과 가져오기
+
+      // 남은 20%를 키워드 검색 결과에 할당
+      const remainingSpots = Math.max(2, searchConfig.maxResults - allResults.length);
+      // 키워드당 결과 수 계산 (최소 1개)
+      const resultsPerKeyword = Math.max(1, Math.ceil(remainingSpots / keywordsToUse.length));
       
       for (const term of keywordsToUse) {
         console.log(`Searching for keyword: ${term}`);
@@ -772,12 +779,14 @@ const findPMIDWithPerplexity = async (abstract: string): Promise<string | null> 
       // 중복되지 않는 키워드 검색 결과 중 관련성 높은 상위 6개만 선택
       const uniqueTopResults = [];
       let count = 0;
+      // 최대 결과 수의 20%를 추가 논문에 할당 (최소 2개)
+      const maxAdditionalPapers = Math.max(2, Math.floor(searchConfig.maxResults * 0.2));
       
       for (const paper of sortedKeywordResults) {
         if (!existingPmids.includes(paper.pmid)) {
           uniqueTopResults.push(paper);
           count++;
-          if (count >= 6) break; // 최대 6개까지만 추가
+          if (count >= maxAdditionalPapers) break;
         }
       }
       
