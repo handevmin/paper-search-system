@@ -615,17 +615,34 @@ Respond with a JSON object in this exact format (and nothing else):
   // 참고문헌 ID 추출 함수
   const extractReferenceIds = (referencesData: ReferenceData): string[] => {
     try {
-      if (referencesData && referencesData.linksets && referencesData.linksets.length > 0) {
-        const linkset = referencesData.linksets[0];
-        if (linkset.linksetdbs && linkset.linksetdbs.length > 0) {
-          const linksetdb = linkset.linksetdbs.find(db => db.linkname === 'pubmed_pubmed_refs');
-          if (linksetdb && linksetdb.links) {
-            // 객체 배열이 아닌 ID 문자열 배열로 변환
-            return linksetdb.links.map(link => typeof link === 'object' ? link.id : link);
+      console.log('Reference data structure:', JSON.stringify(referencesData));
+      
+      // 모든 가능한 링크셋 검사
+      const allIds: string[] = [];
+      
+      if (referencesData?.linksets && referencesData.linksets.length > 0) {
+        referencesData.linksets.forEach(linkset => {
+          if (linkset.linksetdbs) {
+            linkset.linksetdbs.forEach(db => {
+              // 모든 링크 유형 로깅
+              console.log(`Found linkname: ${db.linkname}, links count: ${db.links?.length || 0}`);
+              
+              // 참고문헌 관련 링크 포함
+              if (db.linkname && (
+                  db.linkname.includes('pubmed_pubmed_refs') || 
+                  db.linkname.includes('pubmed_pubmed_citedin') ||
+                  db.linkname.includes('pubmed_pubmed')
+                ) && db.links) {
+                const ids = db.links.map(link => typeof link === 'object' ? link.id : link);
+                allIds.push(...ids);
+              }
+            });
           }
-        }
+        });
       }
-      return [];
+      
+      // 중복 제거
+      return [...new Set(allIds)];
     } catch (error) {
       console.error('Error extracting reference IDs:', error);
       return [];
