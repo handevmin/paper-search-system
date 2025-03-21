@@ -650,7 +650,6 @@ Respond with a JSON object in this exact format (and nothing else):
   };
 
   // Perplexity API를 사용하여 초록으로부터 논문의 PMID 찾기
-  // Perplexity API를 사용하여 초록으로부터 논문의 PMID 찾기
   const findPMIDWithPerplexity = async (abstract: string): Promise<string | null> => {
     try {
       console.log('Searching with Perplexity API');
@@ -660,7 +659,7 @@ Respond with a JSON object in this exact format (and nothing else):
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ abstract })
+        body: JSON.stringify({ textContent: abstract })
       });
 
       if (!response.ok) {

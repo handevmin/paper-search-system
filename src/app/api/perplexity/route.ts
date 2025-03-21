@@ -5,9 +5,9 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { abstract } = body;
+    const { textContent } = body;
     
-    console.log('Perplexity API - Abstract query:', abstract.substring(0, 100) + '...');
+    console.log('Perplexity API - Text query:', textContent.substring(0, 100) + '...');
     
     if (!PERPLEXITY_API_KEY) {
       console.error('Perplexity API key not configured');
@@ -22,19 +22,20 @@ export async function POST(request: Request) {
         'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
         'Content-Type': 'application/json'
       },
+      // API 요청 본문 수정
       body: JSON.stringify({
-        model: "sonar-pro",
+        model: "sonar-deep-research",
         messages: [
           {
             role: "system",
-            content: "You are a research assistant specialized in identifying PubMed papers. Return ONLY the PMID number without any additional text. If you can't find a PMID, respond with 'NOT_FOUND'."
+            content: "You are a helpful AI research assistant that specializes in finding academic papers and their identifiers."
           },
           {
             role: "user",
-            content: `Find the exact PMID (PubMed ID) number for the medical research paper with this abstract: "${abstract}"`
+            content: `${textContent}\n\n해당 논문의 pubmed id 알려줘`
           }
         ],
-        max_tokens: 50,
+        max_tokens: 500,
         temperature: 0.1,
         top_p: 0.9
       })
